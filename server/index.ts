@@ -1,64 +1,49 @@
-import { z } from "zod";
-import { publicProcedure, router } from "./trpc";
-import { createHTTPServer } from '@trpc/server/adapters/standalone';
-
-const todoInputType = z.object({
-  title: z.string(),
-  description: z.string(),
-});
-
-const userInputType = z.object({
-    email: z.string(),
-    password: z.string()
-})
+import { router } from "./trpc";
+import { createHTTPServer } from "@trpc/server/adapters/standalone";
+import jwt from "jsonwebtoken";
+import { Todo, User } from "./db";
+import { userRouter } from "./router/userRouter";
+import { todoRouter } from "./router/todoRouter";
+const SECRET = "RandomDummySecretForNow";
 
 const appRouter = router({
-  createTodo: publicProcedure
-    .input(todoInputType)
-    .mutation((opts) => {
-
-    const username = opts.ctx.username;
-    if(!username){
-      console.log('Username is not here...or it\'s undefined...');
-    }
-    console.log(username); // In the real world we check the username exist or not then performs in that manner
-    console.log(`Ye createTodo ka options hai ye ${opts}`);
-    const title = opts.input.title;
-    const description = opts.input.description;
-
-    // Do database stuff here...
-    console.log(`Creating todo with title: ${title} and description: ${description}`);
-    return { id: "1" };
-  }),
-  signup: publicProcedure
-  .input(userInputType)
-  .mutation((options) => {
-    const email = options.input.email;
-    const password = options.input.password;
-
-    // Do validation here
-    // Do database stuff here
-    const token = 'lkjhasdflkjhasdflkjhasdflkjh' // It could be JWT token 
-
-    return { token, message: 'This message is from signup procedure'}
-  })
+  user: userRouter,
+  todo: todoRouter
 });
 
-const server = createHTTPServer({
-    router: appRouter,
-    createContext(opts) {
-        const authHeader = opts.req.headers["authorization"];
-        console.log(authHeader); // logging that the header is reaching here
-        // we have to do jwt.verify() make sure that authHeader is correct then only return username else undefined
+// Export type router type signature, NOT the router itself.
+export type AppRouter = typeof appRouter;
 
-        return {
-            username: 'haseeb shaikh' // Returning a dummy username
-        }
+const server = createHTTPServer({
+  router: appRouter,
+  createContext(opts) {
+    const authHeader = opts.req.headers["authorization"];
+
+    if (authHeader) {
+      const token = authHeader.split(" ")[1];
+      console.log(`This is token from headers ${token.length}`);
+
+      return new Promise<{
+        db: { Todo: typeof Todo; User: typeof User };
+        userId?: string;
+      }>((resolve, reject) => {
+        jwt.verify(token, SECRET, (err, user) => {
+          if (user) {
+            console.log(`User is here's user detail ${user}`);
+            resolve({ db: { Todo, User }, userId: (user as any).userId as string });
+          } else {
+            console.log(`User is not here`);
+            resolve({ db: { Todo, User } });
+          }
+        });
+      });
     }
-})
+    return {
+      db: { Todo, User },
+    };
+  },
+});
 
 server.listen(3000, () => {
-    console.log('Connected successfully on port 3000');
-  });
-  
-export type AppRouter = typeof appRouter;
+  console.log("Connected successfully on port 3000");
+});
